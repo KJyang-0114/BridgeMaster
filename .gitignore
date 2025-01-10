@@ -1,0 +1,45 @@
+# Eclipse
+bin/
+*.launch
+.settings/
+.metadata/
+.classpath
+.project
+
+# IntelliJ IDEA
+out/
+*.ipr
+*.iws
+*.iml
+.idea/
+
+# Gradle
+build/
+.gradle/
+gradle-app.setting
+
+# Minecraft Forge
+eclipse/
+run/
+logs/
+crash-reports/
+saves/
+config/
+mods/
+screenshots/
+*.log
+
+# Mac OS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Compiled files
+*.class
+*.jar
+!gradle-wrapper.jar

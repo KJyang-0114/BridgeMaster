@@ -1,0 +1,16 @@
+[
+{
+  "modid": "autoblock",
+  "name": "AutoBlock",
+  "description": "A mod that helps with fast bridging in Minecraft",
+  "version": "2.5",
+  "mcversion": "1.8.9",
+  "url": "",
+  "updateUrl": "",
+  "authorList": ["KJyang"],
+  "credits": "",
+  "logoFile": "",
+  "screenshots": [],
+  "dependencies": []
+}
+]
