@@ -86,3 +86,5 @@ processResources
         exclude 'mcmod.info'
     }
 }
+
+task copyJar(type: Copy) { from jar.archivePath; into "/Users/kjyang/Library/Application Support/PrismLauncher/instances/1.8.9/minecraft/mods"; rename { String fileName -> "autoblock.jar" } }; build.finalizedBy(copyJar)

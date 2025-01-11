@@ -24,6 +24,8 @@ import com.autoblock.config.AutoBlockConfig;
 import com.autoblock.util.MovementHelper;
 import com.autoblock.gui.ModernGuiScreen;
 
+import java.util.Random;
+
 @Mod(modid = AutoBlock.MODID, version = AutoBlock.VERSION, name = AutoBlock.NAME)
 public class AutoBlock {
     public static final String MODID = "autoblock";
@@ -35,8 +37,15 @@ public class AutoBlock {
     private boolean isSneaking = false;
     private boolean isSpeedBridging = false;
     private float originalPitch = 0.0F;
+    private float originalYaw = 0.0F;
+    private float targetPitch = 0.0F;
+    private float targetYaw = 0.0F;
     private KeyBinding speedBridgeKey;
     private KeyBinding openGuiKey;
+    private long lastClickTime = 0;
+    private Random random = new Random();
+    private float smoothness = 0.3F; // 視角平滑度 (0-1)
+    private float randomRange = 0.8F; // 視角隨機範圍改為±0.8度
 
     @EventHandler
     public void preInit(FMLPreInitializationEvent event) {
@@ -47,7 +56,6 @@ public class AutoBlock {
     public void init(FMLInitializationEvent event) {
         MinecraftForge.EVENT_BUS.register(this);
         
-        // 註冊按鍵
         speedBridgeKey = new KeyBinding("Speed Bridge", AutoBlockConfig.straightButton, "AutoBlock");
         openGuiKey = new KeyBinding("Open Settings", Keyboard.KEY_P, "AutoBlock");
         
@@ -55,12 +63,85 @@ public class AutoBlock {
         ClientRegistry.registerKeyBinding(openGuiKey);
     }
 
-    private boolean isKeyDown(KeyBinding binding) {
-        if (binding.getKeyCode() >= 0) {
-            return binding.isKeyDown();
+    private boolean isKeyDown(int keyCode) {
+        if (keyCode >= 0) {
+            return Keyboard.isKeyDown(keyCode);
         } else {
-            int mouseButton = binding.getKeyCode() + 100;
+            int mouseButton = keyCode + 100;
             return mouseButton >= 0 && mouseButton < Mouse.getButtonCount() && Mouse.isButtonDown(mouseButton);
+        }
+    }
+
+    private float getOptimalPitch(float yaw) {
+        // 將視角規範化到 0-360 度
+        yaw = yaw % 360;
+        if (yaw < 0) yaw += 360;
+
+        float basePitch = 79.5F; // 基礎視角改為79.5度
+        
+        // 添加小幅隨機偏移
+        return basePitch + (random.nextFloat() * 2 - 1) * randomRange;
+    }
+
+    private float getOptimalYaw(float currentYaw) {
+        // 將視角規範化到 -180 到 180 度
+        currentYaw = currentYaw % 360;
+        if (currentYaw > 180) currentYaw -= 360;
+        if (currentYaw < -180) currentYaw += 360;
+
+        // 定義四個目標角度
+        float[] targetAngles = {45, -45, 135, -135};  // 北、西、東、南
+        float minDiff = Float.MAX_VALUE;
+        float bestAngle = 45;  // 預設值
+
+        // 尋找最接近的角度
+        for (float angle : targetAngles) {
+            float diff = Math.abs(currentYaw - angle);
+            // 處理角度循環的情況
+            if (diff > 180) {
+                diff = 360 - diff;
+            }
+            if (diff < minDiff) {
+                minDiff = diff;
+                bestAngle = angle;
+            }
+        }
+
+        return bestAngle;
+    }
+
+    private void smoothRotateTo(EntityPlayerSP player, float targetPitch, float targetYaw) {
+        float currentPitch = player.rotationPitch;
+        float currentYaw = player.rotationYaw;
+        
+        // 將當前yaw規範化到 -180 到 180 度
+        currentYaw = currentYaw % 360;
+        if (currentYaw > 180) currentYaw -= 360;
+        if (currentYaw < -180) currentYaw += 360;
+        
+        // 計算pitch差值
+        float pitchDiff = targetPitch - currentPitch;
+        
+        // 計算yaw差值（考慮360度循環）
+        float yawDiff = targetYaw - currentYaw;
+        if (yawDiff > 180) yawDiff -= 360;
+        if (yawDiff < -180) yawDiff += 360;
+        
+        // 平滑過渡
+        player.rotationPitch += pitchDiff * smoothness;
+        player.rotationYaw += yawDiff * smoothness;
+    }
+
+    private void simulateRightClick() {
+        long currentTime = System.currentTimeMillis();
+        // 隨機CPS (6-14)
+        int minDelay = 1000 / 14; // ~71ms
+        int maxDelay = 1000 / 6;  // ~166ms
+        int randomDelay = minDelay + random.nextInt(maxDelay - minDelay);
+        
+        if (currentTime - lastClickTime >= randomDelay) {
+            KeyBinding.onTick(mc.gameSettings.keyBindUseItem.getKeyCode());
+            lastClickTime = currentTime;
         }
     }
 
@@ -71,39 +152,53 @@ public class AutoBlock {
         EntityPlayerSP player = mc.thePlayer;
         if (player == null) return;
 
-        // 檢查是否打開GUI
         if (openGuiKey.isPressed()) {
             mc.displayGuiScreen(new ModernGuiScreen());
             return;
         }
 
-        // 檢查是否手持方塊
         ItemStack heldItem = player.getHeldItem();
         boolean holdingBlock = heldItem != null && heldItem.getItem() instanceof ItemBlock;
-
-        // 檢查是否在方塊邊緣
         boolean onEdge = isPlayerOnEdge();
+        boolean speedBridgeActive = isKeyDown(AutoBlockConfig.straightButton);
 
-        // 處理速疊邏輯
-        if (isKeyDown(speedBridgeKey) && holdingBlock) {
+        if (speedBridgeActive && holdingBlock) {
             if (!isSpeedBridging) {
                 isSpeedBridging = true;
                 originalPitch = player.rotationPitch;
+                originalYaw = player.rotationYaw;
+                targetPitch = getOptimalPitch(player.rotationYaw);
+                targetYaw = getOptimalYaw(player.rotationYaw);
             }
 
             if (onEdge) {
-                // 自動蹲下
-                setSneaking(true);
-                // 調整視角
-                player.rotationPitch = 81.5F;
+                KeyBinding.setKeyBindState(mc.gameSettings.keyBindSneak.getKeyCode(), true);
+                isSneaking = true;
+                
+                // 平滑視角調整
+                smoothRotateTo(player, targetPitch, targetYaw);
+                
+                // 每隔一段時間更新目標視角，產生微小移動
+                if (random.nextInt(20) == 0) { // 約每秒更新一次
+                    targetPitch = getOptimalPitch(player.rotationYaw);
+                }
+                
+                simulateRightClick();
             } else {
-                setSneaking(false);
+                if (isSneaking) {
+                    KeyBinding.setKeyBindState(mc.gameSettings.keyBindSneak.getKeyCode(), false);
+                    isSneaking = false;
+                }
             }
         } else {
             if (isSpeedBridging) {
                 isSpeedBridging = false;
-                setSneaking(false);
-                player.rotationPitch = originalPitch;
+                if (isSneaking) {
+                    KeyBinding.setKeyBindState(mc.gameSettings.keyBindSneak.getKeyCode(), false);
+                    isSneaking = false;
+                }
+                // 平滑返回原始視角
+                smoothRotateTo(player, originalPitch, originalYaw);
             }
         }
 
@@ -112,15 +207,11 @@ public class AutoBlock {
 
     private boolean isPlayerOnEdge() {
         EntityPlayerSP player = mc.thePlayer;
-        double relativeX = player.posX - Math.floor(player.posX);
-        double relativeZ = player.posZ - Math.floor(player.posZ);
-        return relativeX > 0.7 || relativeX < 0.3 || relativeZ > 0.7 || relativeZ < 0.3;
-    }
-
-    private void setSneaking(boolean sneak) {
-        if (sneak != isSneaking) {
-            KeyBinding.setKeyBindState(mc.gameSettings.keyBindSneak.getKeyCode(), sneak);
-            isSneaking = sneak;
-        }
+        BlockPos pos = new BlockPos(player.posX, player.posY - 0.5, player.posZ);
+        return !mc.theWorld.getBlockState(pos).getBlock().isFullBlock() &&
+               (player.posX - Math.floor(player.posX) > 0.7 || 
+                player.posX - Math.floor(player.posX) < 0.3 ||
+                player.posZ - Math.floor(player.posZ) > 0.7 || 
+                player.posZ - Math.floor(player.posZ) < 0.3);
     }
 }

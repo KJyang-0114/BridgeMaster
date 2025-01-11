@@ -15,10 +15,9 @@ public class KeybindScreen extends GuiScreen {
     private boolean isBinding = false;
     private boolean hasStartedBinding = false;
     private long bindingStartTime;
+    private int lastMouseButton = -1;
     
-    private GuiButton diagonalKeyButton;
-    private GuiButton straightKeyButton;
-    private GuiButton lockKeyButton;
+    private GuiButton speedBridgeButton;
     private GuiButton backButton;
     
     public KeybindScreen(GuiScreen parentScreen) {
@@ -30,29 +29,20 @@ public class KeybindScreen extends GuiScreen {
         int centerX = this.width / 2;
         int startY = this.height / 4;
         int buttonWidth = 200;
-        int buttonHeight = 20;
         
-        diagonalKeyButton = new GuiButton(0, centerX - buttonWidth/2, startY,
-            "斜向搭橋: " + getKeyDisplayName(AutoBlockConfig.diagonalButton));
+        speedBridgeButton = new GuiButton(0, centerX - buttonWidth/2, startY,
+            "速疊按鍵: " + getKeyDisplayName(AutoBlockConfig.straightButton));
         
-        straightKeyButton = new GuiButton(1, centerX - buttonWidth/2, startY + 25,
-            "直線搭橋: " + getKeyDisplayName(AutoBlockConfig.straightButton));
+        backButton = new GuiButton(1, centerX - buttonWidth/2, startY + 50, "返回");
         
-        lockKeyButton = new GuiButton(2, centerX - buttonWidth/2, startY + 50,
-            "鎖定方向: " + Keyboard.getKeyName(AutoBlockConfig.lockDirectionKey));
-        
-        backButton = new GuiButton(3, centerX - buttonWidth/2, startY + 100, "返回");
-        
-        this.buttonList.add(diagonalKeyButton);
-        this.buttonList.add(straightKeyButton);
-        this.buttonList.add(lockKeyButton);
+        this.buttonList.add(speedBridgeButton);
         this.buttonList.add(backButton);
     }
     
     private String getKeyDisplayName(int keyCode) {
         if (keyCode < 0) {
             int mouseButton = keyCode + 100; // 轉換為滑鼠按鍵索引
-            return "滑鼠" + (mouseButton + 1);
+            return "滑鼠按鍵 " + (mouseButton + 1);
         }
         return Keyboard.getKeyName(keyCode);
     }
@@ -69,7 +59,8 @@ public class KeybindScreen extends GuiScreen {
             isBinding = true;
             hasStartedBinding = false;
             bindingStartTime = System.currentTimeMillis();
-            button.displayString = "請按下按鍵或滑鼠按鍵...";
+            lastMouseButton = -1;
+            button.displayString = "請按下按鍵...";
         }
     }
     
@@ -80,20 +71,21 @@ public class KeybindScreen extends GuiScreen {
             // 等待一小段時間後才開始檢測按鍵
             if (!hasStartedBinding && System.currentTimeMillis() - bindingStartTime > 500) {
                 hasStartedBinding = true;
-                // 清除所有按鍵狀態
-                while (Mouse.next()) {}
-                while (Keyboard.next()) {}
             }
             
             if (hasStartedBinding) {
                 // 檢查滑鼠按鍵
-                for (int i = 0; i < 5; i++) {
+                for (int i = 0; i < Mouse.getButtonCount(); i++) {
                     if (Mouse.isButtonDown(i)) {
-                        int mouseKeyCode = -100 + i; // 使用負數來表示滑鼠按鍵
-                        handleKeyBinding(mouseKeyCode);
-                        return;
+                        if (lastMouseButton != i) {
+                            lastMouseButton = i;
+                            int mouseKeyCode = -100 + i; // 使用負數來表示滑鼠按鍵
+                            handleKeyBinding(mouseKeyCode);
+                            return;
+                        }
                     }
                 }
+                lastMouseButton = -1;
             }
         }
     }
@@ -116,18 +108,8 @@ public class KeybindScreen extends GuiScreen {
     }
     
     private void handleKeyBinding(int keyCode) {
-        switch (selectedButton.id) {
-            case 0:
-                AutoBlockConfig.diagonalButton = keyCode;
-                break;
-            case 1:
-                AutoBlockConfig.straightButton = keyCode;
-                break;
-            case 2:
-                if (keyCode >= 0) { // 只允許鍵盤按鍵用於鎖定方向
-                    AutoBlockConfig.lockDirectionKey = keyCode;
-                }
-                break;
+        if (selectedButton == speedBridgeButton) {
+            AutoBlockConfig.straightButton = keyCode;
         }
         
         isBinding = false;
@@ -137,9 +119,7 @@ public class KeybindScreen extends GuiScreen {
     }
     
     private void updateButtonText() {
-        diagonalKeyButton.displayString = "斜向搭橋: " + getKeyDisplayName(AutoBlockConfig.diagonalButton);
-        straightKeyButton.displayString = "直線搭橋: " + getKeyDisplayName(AutoBlockConfig.straightButton);
-        lockKeyButton.displayString = "鎖定方向: " + Keyboard.getKeyName(AutoBlockConfig.lockDirectionKey);
+        speedBridgeButton.displayString = "速疊按鍵: " + getKeyDisplayName(AutoBlockConfig.straightButton);
     }
     
     @Override
@@ -152,7 +132,7 @@ public class KeybindScreen extends GuiScreen {
         
         if (isBinding) {
             String helpText = hasStartedBinding ? 
-                "按下任意按鍵或滑鼠按鍵..." : 
+                "請按下任意按鍵..." : 
                 "請稍等...";
             int helpWidth = fontRendererObj.getStringWidth(helpText);
             fontRendererObj.drawString(helpText, (width - helpWidth) / 2, height - 40, 0xFFFFFF);
