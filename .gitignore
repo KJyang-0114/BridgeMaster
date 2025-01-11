@@ -1,45 +1,44 @@
+# Gradle
+.gradle/
+build/
+out/
+classes/
+
 # Eclipse
-bin/
 *.launch
 .settings/
 .metadata/
 .classpath
 .project
+bin/
+eclipse/
 
 # IntelliJ IDEA
-out/
+.idea/
+*.iml
 *.ipr
 *.iws
-*.iml
-.idea/
 
-# Gradle
-build/
-.gradle/
-gradle-app.setting
+# VSCode
+.vscode/
 
-# Minecraft Forge
-eclipse/
-run/
-logs/
-crash-reports/
-saves/
-config/
-mods/
-screenshots/
-*.log
-
-# Mac OS
+# macOS
 .DS_Store
 .AppleDouble
 .LSOverride
 
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
+# Minecraft
+run/
+logs/
+crash-reports/
+saves/
+screenshots/
+options.txt
+usercache.json
+usernamecache.json
 
-# Compiled files
-*.class
-*.jar
-!gradle-wrapper.jar
+# Forge
+forge*.txt
+*.txt.gz
+*.log
+*.log.gz
