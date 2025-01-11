@@ -46,6 +46,11 @@ public class AutoBlock {
     private Random random = new Random();
     private float smoothness = 0.3F; // 視角平滑度 (0-1)
     private float randomRange = 0.8F; // 視角隨機範圍改為±0.8度
+    private boolean isJumping = false;
+    private static final int NORMAL_MIN_CPS = 8;  // 正常時最小CPS
+    private static final int NORMAL_MAX_CPS = 16; // 正常時最大CPS
+    private static final int JUMP_MIN_CPS = 12;   // 跳疊時的最小CPS
+    private static final int JUMP_MAX_CPS = 18;   // 跳疊時的最大CPS
 
     @EventHandler
     public void preInit(FMLPreInitializationEvent event) {
@@ -56,7 +61,7 @@ public class AutoBlock {
     public void init(FMLInitializationEvent event) {
         MinecraftForge.EVENT_BUS.register(this);
         
-        speedBridgeKey = new KeyBinding("Speed Bridge", AutoBlockConfig.straightButton, "AutoBlock");
+        speedBridgeKey = new KeyBinding("Speed Bridge", -98, "AutoBlock"); // -98 代表滑鼠側鍵3
         openGuiKey = new KeyBinding("Open Settings", Keyboard.KEY_P, "AutoBlock");
         
         ClientRegistry.registerKeyBinding(speedBridgeKey);
@@ -134,9 +139,13 @@ public class AutoBlock {
 
     private void simulateRightClick() {
         long currentTime = System.currentTimeMillis();
-        // 隨機CPS (6-14)
-        int minDelay = 1000 / 14; // ~71ms
-        int maxDelay = 1000 / 6;  // ~166ms
+        
+        // 根據是否在跳躍決定CPS範圍
+        int minCps = isJumping ? JUMP_MIN_CPS : NORMAL_MIN_CPS;
+        int maxCps = isJumping ? JUMP_MAX_CPS : NORMAL_MAX_CPS;
+        
+        int minDelay = 1000 / maxCps;
+        int maxDelay = 1000 / minCps;
         int randomDelay = minDelay + random.nextInt(maxDelay - minDelay);
         
         if (currentTime - lastClickTime >= randomDelay) {
@@ -160,7 +169,10 @@ public class AutoBlock {
         ItemStack heldItem = player.getHeldItem();
         boolean holdingBlock = heldItem != null && heldItem.getItem() instanceof ItemBlock;
         boolean onEdge = isPlayerOnEdge();
-        boolean speedBridgeActive = isKeyDown(AutoBlockConfig.straightButton);
+        boolean speedBridgeActive = isKeyDown(speedBridgeKey.getKeyCode());
+
+        // 更新跳躍狀態
+        isJumping = !player.onGround;
 
         if (speedBridgeActive && holdingBlock) {
             if (!isSpeedBridging) {
@@ -171,25 +183,25 @@ public class AutoBlock {
                 targetYaw = getOptimalYaw(player.rotationYaw);
             }
 
+            // 只在邊緣時自動蹲下
             if (onEdge) {
                 KeyBinding.setKeyBindState(mc.gameSettings.keyBindSneak.getKeyCode(), true);
                 isSneaking = true;
-                
-                // 平滑視角調整
-                smoothRotateTo(player, targetPitch, targetYaw);
-                
-                // 每隔一段時間更新目標視角，產生微小移動
-                if (random.nextInt(20) == 0) { // 約每秒更新一次
-                    targetPitch = getOptimalPitch(player.rotationYaw);
-                }
-                
-                simulateRightClick();
-            } else {
-                if (isSneaking) {
-                    KeyBinding.setKeyBindState(mc.gameSettings.keyBindSneak.getKeyCode(), false);
-                    isSneaking = false;
-                }
+            } else if (isSneaking) {
+                KeyBinding.setKeyBindState(mc.gameSettings.keyBindSneak.getKeyCode(), false);
+                isSneaking = false;
             }
+            
+            // 平滑視角調整
+            smoothRotateTo(player, targetPitch, targetYaw);
+            
+            // 每隔一段時間更新目標視角，產生微小移動
+            if (random.nextInt(20) == 0) {
+                targetPitch = getOptimalPitch(player.rotationYaw);
+            }
+            
+            // 持續點擊右鍵
+            simulateRightClick();
         } else {
             if (isSpeedBridging) {
                 isSpeedBridging = false;
