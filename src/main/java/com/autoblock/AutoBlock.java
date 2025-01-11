@@ -36,21 +36,29 @@ public class AutoBlock {
     private boolean wasOnEdge = false;
     private boolean isSneaking = false;
     private boolean isSpeedBridging = false;
-    private float originalPitch = 0.0F;
-    private float originalYaw = 0.0F;
-    private float targetPitch = 0.0F;
-    private float targetYaw = 0.0F;
     private KeyBinding speedBridgeKey;
     private KeyBinding openGuiKey;
     private long lastClickTime = 0;
     private Random random = new Random();
-    private float smoothness = 0.3F; // 視角平滑度 (0-1)
-    private float randomRange = 0.8F; // 視角隨機範圍改為±0.8度
     private boolean isJumping = false;
-    private static final int NORMAL_MIN_CPS = 8;  // 正常時最小CPS
-    private static final int NORMAL_MAX_CPS = 16; // 正常時最大CPS
-    private static final int JUMP_MIN_CPS = 12;   // 跳疊時的最小CPS
-    private static final int JUMP_MAX_CPS = 18;   // 跳疊時的最大CPS
+    private static final int NORMAL_MIN_CPS = 7;  // 正常時最小CPS
+    private static final int NORMAL_MAX_CPS = 12; // 正常時最大CPS
+    private static final int JUMP_MIN_CPS = 11;   // 一般跳躍時的最小CPS
+    private static final int JUMP_MAX_CPS = 16;   // 一般跳躍時的最大CPS
+    private static final int JUMP_START_MIN_CPS = 14; // 跳躍開始時的最小CPS
+    private static final int JUMP_START_MAX_CPS = 16; // 跳躍開始時的最大CPS
+    private static final long JUMP_START_DURATION = 150; // 跳躍開始後的高速點擊持續時間(ms)
+    private int missClickChance = 5;              // 漏掉點擊的機率(5%)
+    private long sneakDelay = 0;                  // 蹲下延遲
+    private static final long MAX_SNEAK_DELAY = 30; // 最大蹲下延遲(ms)
+    private float originalPitch = 0.0F;
+    private float originalYaw = 0.0F;
+    private float targetPitch = 0.0F;
+    private float targetYaw = 0.0F;
+    private float smoothness = 0.3F; // 視角平滑度 (0-1)
+    private float randomRange = 0.8F; // pitch角度的隨機範圍±0.8度
+    private float yawRandomRange = 0.3F; // yaw角度的隨機範圍改為±0.3度
+    private long jumpStartTime = 0;
 
     @EventHandler
     public void preInit(FMLPreInitializationEvent event) {
@@ -77,12 +85,48 @@ public class AutoBlock {
         }
     }
 
+    private void simulateRightClick() {
+        long currentTime = System.currentTimeMillis();
+        
+        // 根據跳躍狀態和時間決定CPS範圍
+        int minCps, maxCps;
+        if (isJumping && currentTime - jumpStartTime < JUMP_START_DURATION) {
+            // 跳躍開始的瞬間使用更高的CPS
+            minCps = JUMP_START_MIN_CPS;
+            maxCps = JUMP_START_MAX_CPS;
+        } else if (isJumping) {
+            // 一般跳躍狀態
+            minCps = JUMP_MIN_CPS;
+            maxCps = JUMP_MAX_CPS;
+        } else {
+            // 正常狀態
+            minCps = NORMAL_MIN_CPS;
+            maxCps = NORMAL_MAX_CPS;
+        }
+        
+        // 計算基礎延遲
+        int minDelay = 1000 / maxCps;
+        int maxDelay = 1000 / minCps;
+        int randomDelay = minDelay + random.nextInt(maxDelay - minDelay);
+        
+        // 偶爾漏掉點擊
+        if (random.nextInt(100) < missClickChance) {
+            randomDelay *= 2; // 延長延遲來模擬漏掉點擊
+        }
+        
+        if (currentTime - lastClickTime >= randomDelay) {
+            KeyBinding.onTick(mc.gameSettings.keyBindUseItem.getKeyCode());
+            lastClickTime = currentTime;
+        }
+    }
+
     private float getOptimalPitch(float yaw) {
         // 將視角規範化到 0-360 度
         yaw = yaw % 360;
         if (yaw < 0) yaw += 360;
 
-        float basePitch = 79.5F; // 基礎視角改為79.5度
+        // 根據是否在跳躍決定基礎視角
+        float basePitch = isJumping ? 78.0F : 79.5F;
         
         // 添加小幅隨機偏移
         return basePitch + (random.nextFloat() * 2 - 1) * randomRange;
@@ -112,7 +156,8 @@ public class AutoBlock {
             }
         }
 
-        return bestAngle;
+        // 添加隨機偏移
+        return bestAngle + (random.nextFloat() * 2 - 1) * yawRandomRange;
     }
 
     private void smoothRotateTo(EntityPlayerSP player, float targetPitch, float targetYaw) {
@@ -137,23 +182,6 @@ public class AutoBlock {
         player.rotationYaw += yawDiff * smoothness;
     }
 
-    private void simulateRightClick() {
-        long currentTime = System.currentTimeMillis();
-        
-        // 根據是否在跳躍決定CPS範圍
-        int minCps = isJumping ? JUMP_MIN_CPS : NORMAL_MIN_CPS;
-        int maxCps = isJumping ? JUMP_MAX_CPS : NORMAL_MAX_CPS;
-        
-        int minDelay = 1000 / maxCps;
-        int maxDelay = 1000 / minCps;
-        int randomDelay = minDelay + random.nextInt(maxDelay - minDelay);
-        
-        if (currentTime - lastClickTime >= randomDelay) {
-            KeyBinding.onTick(mc.gameSettings.keyBindUseItem.getKeyCode());
-            lastClickTime = currentTime;
-        }
-    }
-
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.START) return;
@@ -171,8 +199,23 @@ public class AutoBlock {
         boolean onEdge = isPlayerOnEdge();
         boolean speedBridgeActive = isKeyDown(speedBridgeKey.getKeyCode());
 
-        // 更新跳躍狀態
+        // 更新跳躍狀態並立即更新目標視角
+        boolean wasJumping = isJumping;
         isJumping = !player.onGround;
+        
+        // 當開始跳躍時記錄時間
+        if (!wasJumping && isJumping) {
+            jumpStartTime = System.currentTimeMillis();
+        }
+
+        // 當跳躍狀態改變時立即更新視角
+        if (wasJumping != isJumping && isSpeedBridging) {
+            targetPitch = getOptimalPitch(player.rotationYaw);
+            // 增加平滑度以加快視角切換
+            smoothness = 0.5F;
+        } else {
+            smoothness = 0.3F;
+        }
 
         if (speedBridgeActive && holdingBlock) {
             if (!isSpeedBridging) {
@@ -181,13 +224,16 @@ public class AutoBlock {
                 originalYaw = player.rotationYaw;
                 targetPitch = getOptimalPitch(player.rotationYaw);
                 targetYaw = getOptimalYaw(player.rotationYaw);
+                sneakDelay = System.currentTimeMillis() + random.nextInt((int)MAX_SNEAK_DELAY);
+                // 重置點擊計時以避免切換時的延遲
+                lastClickTime = 0;
             }
 
-            // 只在邊緣時自動蹲下
-            if (onEdge) {
+            // 只在邊緣時自動蹲下，加入延遲
+            if (onEdge && System.currentTimeMillis() >= sneakDelay) {
                 KeyBinding.setKeyBindState(mc.gameSettings.keyBindSneak.getKeyCode(), true);
                 isSneaking = true;
-            } else if (isSneaking) {
+            } else if (!onEdge && isSneaking) {
                 KeyBinding.setKeyBindState(mc.gameSettings.keyBindSneak.getKeyCode(), false);
                 isSneaking = false;
             }
@@ -198,7 +244,11 @@ public class AutoBlock {
             // 每隔一段時間更新目標視角，產生微小移動
             if (random.nextInt(20) == 0) {
                 targetPitch = getOptimalPitch(player.rotationYaw);
+                targetYaw = getOptimalYaw(player.rotationYaw);
             }
+            
+            // 根據移動狀態調整漏點率
+            missClickChance = Math.abs(player.moveStrafing) > 0.1F ? 8 : 5;
             
             // 持續點擊右鍵
             simulateRightClick();
